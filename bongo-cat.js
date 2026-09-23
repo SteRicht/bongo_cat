@@ -14,6 +14,7 @@
  *   data-size     Breite im fixierten Modus, z. B. "220" oder "15rem"  (Standard: 220)
  *   data-offset   Abstand zum Rand, z. B. "16"                         (Standard: 16)
  *   data-z-index  z-index im fixierten Modus                           (Standard: 9999)
+ *   data-feedback Anzahl neuer Feedbacks – bei > 0 zeigt die Katze 5 s lang eine Sprechblase
  *   data-auto     "false" = nicht automatisch starten, stattdessen BongoCat.create({...})
  *
  * JS-API:
@@ -62,6 +63,8 @@
   var MOVE_SWITCH_PX = 30;  // so viel Mausbewegung schaltet in den Maus-Modus
   var PRESS_MS = 90;        // Dauer eines Tastenanschlags
   var SLOW_MS = 400;        // weiche Übergangsphase nach Moduswechsel
+  var BUBBLE_MS = 5000;     // Anzeigedauer der Feedback-Sprechblase
+  var TALK_MS = 700;        // so lange bewegt die Katze beim Erscheinen der Blase den Mund
 
   // ---------------------------------------------------------------------------
   // Tastenzuordnung (event.code = physische Position, unabhängig vom Layout)
@@ -116,7 +119,8 @@
     '--bc-line:#1d1d22;--bc-fur:#ffffff;--bc-pink:#ffb3c7;--bc-mouth:#e0607e;',
     '--bc-table:#f3e5d0;--bc-kb:#d9dee7;--bc-key:#ffffff;--bc-key-hit:#ffcf5a;',
     '--bc-pad:#c7dcf4;--bc-mouse:#ffffff;--bc-mouse-hit:#8fb4e8;',
-    '--bc-cup:#ff8f7e;--bc-coffee:#7a4a35;--bc-steam:#a4a9b0}',
+    '--bc-cup:#ff8f7e;--bc-coffee:#7a4a35;--bc-steam:#a4a9b0;--bc-bubble:#ffffff}',
+    '.wrap{position:relative}',
     'svg{display:block;width:100%;height:auto;overflow:visible}',
     '.fur{fill:var(--bc-fur);stroke:var(--bc-line);stroke-width:3.5;stroke-linejoin:round}',
     '.ear{fill:var(--bc-pink)}',
@@ -148,7 +152,28 @@
     '.shoulder{fill:var(--bc-fur)}',
     '.paw{fill:var(--bc-fur);stroke:var(--bc-line);stroke-width:3}',
     '.toes{stroke-width:2}',
-    '@media (prefers-reduced-motion:reduce){.steam path{animation:none;opacity:.5}}'
+    // Sprechblase: standardmäßig über dem Kopf, Spitze zeigt nach unten
+    '.bubble{position:absolute;left:0;right:0;bottom:calc(93% + 12px);margin:0 auto;width:max-content;',
+    'max-width:220px;padding:6px 13px;border:2.5px solid var(--bc-line);border-radius:14px;',
+    'background:var(--bc-bubble);color:var(--bc-line);font:600 14px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;',
+    'white-space:nowrap;pointer-events:none;opacity:0;transform:scale(.6);transform-origin:50% 100%;',
+    'transition:opacity .25s ease-out,transform .4s cubic-bezier(.34,1.56,.64,1)}',
+    '.bubble[hidden]{display:none}',
+    '.bubble.show{opacity:1;transform:none}',
+    '.bubble.hide{opacity:0;transform:translateY(-6px) scale(.95);transition:opacity .45s ease-in,transform .45s ease-in}',
+    '.bubble::before,.bubble::after{content:"";position:absolute;left:50%;top:100%;border-style:solid;border-color:transparent}',
+    '.bubble::before{margin-left:-9px;border-width:12px 9px 0;border-top-color:var(--bc-line)}',
+    '.bubble::after{margin-left:-5.5px;margin-top:-1px;border-width:8px 5.5px 0;border-top-color:var(--bc-bubble)}',
+    // Seitliche Varianten (fixiert oben am Bildschirm): Blase neben dem Kopf, Spitze zur Katze
+    '.bubble.side-left,.bubble.side-right{bottom:auto;top:24%;margin:0}',
+    '.bubble.side-left{left:auto;right:calc(80% + 10px);transform-origin:100% 50%}',
+    '.bubble.side-right{right:auto;left:calc(80% + 10px);transform-origin:0 50%}',
+    '.bubble.side-left::before,.bubble.side-left::after,.bubble.side-right::before,.bubble.side-right::after{top:50%;left:auto;right:auto}',
+    '.bubble.side-left::before{left:100%;margin:-8px 0 0;border-width:8px 0 8px 12px;border-color:transparent transparent transparent var(--bc-line)}',
+    '.bubble.side-left::after{left:100%;margin:-5px 0 0 -1px;border-width:5px 0 5px 8px;border-color:transparent transparent transparent var(--bc-bubble)}',
+    '.bubble.side-right::before{right:100%;margin:-8px 0 0;border-width:8px 12px 8px 0;border-color:transparent var(--bc-line) transparent transparent}',
+    '.bubble.side-right::after{right:100%;margin:-5px -1px 0 0;border-width:5px 8px 5px 0;border-color:transparent var(--bc-bubble) transparent transparent}',
+    '@media (prefers-reduced-motion:reduce){.steam path{animation:none;opacity:.5}.bubble,.bubble.show,.bubble.hide{transform:none}}'
   ].join('');
 
   function armMarkup(side) {
@@ -272,7 +297,7 @@
 
     var host = document.createElement('div');
     host.className = 'bongo-cat';
-    host.setAttribute('aria-hidden', 'true');
+    var bubbleSide = ''; // leer = über dem Kopf
 
     if (target) {
       host.style.display = 'block';
@@ -288,10 +313,12 @@
       host.style.width = 'min(' + toCssLength(opts.size, '220px') + ', 45vw)';
       host.style.zIndex = String(opts.zIndex || 9999);
       host.style.pointerEvents = 'none';
+      if (vert === 'top') bubbleSide = horiz === 'right' ? 'side-left' : 'side-right';
     }
 
     var root = host.attachShadow({ mode: 'open' });
-    root.innerHTML = '<style>' + CSS + '</style>' + SVG;
+    root.innerHTML = '<style>' + CSS + '</style><div class="wrap">' + SVG +
+      '<div class="bubble' + (bubbleSide ? ' ' + bubbleSide : '') + '" role="status" hidden></div></div>';
     (target || document.body).appendChild(host);
 
     function part(name) { return root.querySelector('[data-p="' + name + '"]'); }
@@ -325,7 +352,7 @@
     var pointer = { nx: 0.5, ny: 0.5, px: null, py: null, down: false, downUntil: 0 };
     var drinking = false, drinkStart = 0, nextDrink = now0 + rand(5000, 9000);
     var nextBlink = now0 + rand(2500, 5000), blinkUntil = 0;
-    var mouthUntil = 0;
+    var mouthUntil = 0, talkUntil = 0;
     var spaceToggle = false;
     var lookX = 185;
     var hitKeys = [];
@@ -527,7 +554,8 @@
       happy.t = sipping ? 1 : 0;
       happy.step(dt);
 
-      mouthS.t = now < mouthUntil ? 1 : 0;
+      var talking = now < talkUntil && Math.sin((talkUntil - now) / 55) > 0;
+      mouthS.t = now < mouthUntil || talking ? 1 : 0;
       mouthS.step(dt);
 
       steam.t = !drinking && Math.abs(cupA.x) < 6 ? 1 : 0;
@@ -623,17 +651,45 @@
     function sleep() { if (raf) { global.cancelAnimationFrame(raf); raf = 0; } }
 
     // Nur animieren, solange die Katze sichtbar ist (z. B. Container weggescrollt).
-    var io = null;
+    var io = null, ioReady = !global.IntersectionObserver;
     if (global.IntersectionObserver) {
       io = new global.IntersectionObserver(function (entries) {
+        ioReady = true;
         visible = entries[entries.length - 1].isIntersecting;
         if (visible) wake(); else sleep();
+        maybeShowBubble();
       });
       io.observe(host);
     }
 
+    // --- Feedback-Sprechblase --------------------------------------------------
+    // Erscheint einmalig, sobald die Katze wirklich zu sehen ist (Tab sichtbar, Container im Bild),
+    // damit die 5 Sekunden nicht ungesehen ablaufen.
+    var feedbackCount = parseInt(opts.feedback, 10) || 0;
+    var bubbleEl = root.querySelector('.bubble');
+    var bubblePending = feedbackCount > 0;
+    var bubbleTimers = [];
+
+    function maybeShowBubble() {
+      if (!bubblePending || destroyed || !ioReady || !visible || document.visibilityState === 'hidden') return;
+      bubblePending = false;
+      bubbleEl.textContent = feedbackCount + ' new ' + (feedbackCount === 1 ? 'Feedback' : 'Feedbacks');
+      bubbleEl.hidden = false;
+      void bubbleEl.offsetWidth; // Startzustand festschreiben, damit die Einblendung animiert
+      bubbleEl.classList.add('show');
+      talkUntil = performance.now() + TALK_MS;
+      wake();
+      bubbleTimers.push(setTimeout(function () {
+        bubbleEl.classList.remove('show');
+        bubbleEl.classList.add('hide');
+        bubbleTimers.push(setTimeout(function () { bubbleEl.hidden = true; }, 450));
+      }, BUBBLE_MS));
+    }
+    document.addEventListener('visibilitychange', maybeShowBubble);
+
     render();
     wake();
+    maybeShowBubble();
 
     var instance = {
       element: host,
@@ -642,6 +698,8 @@
         destroyed = true;
         sleep();
         if (io) io.disconnect();
+        bubbleTimers.forEach(clearTimeout);
+        document.removeEventListener('visibilitychange', maybeShowBubble);
         global.removeEventListener('keydown', onKeyDown, listenOpts);
         global.removeEventListener('pointermove', onPointerMove, listenOpts);
         global.removeEventListener('pointerdown', onPointerDown, listenOpts);
@@ -667,7 +725,7 @@
   function autoInit(bongo, script) {
     if (!script || !script.dataset || script.dataset.auto === 'false') return;
     var d = script.dataset;
-    var opts = { target: d.target || null, position: d.position, size: d.size, offset: d.offset, zIndex: d.zIndex };
+    var opts = { target: d.target || null, position: d.position, size: d.size, offset: d.offset, zIndex: d.zIndex, feedback: d.feedback };
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', function () { bongo.create(opts); });
     } else {
