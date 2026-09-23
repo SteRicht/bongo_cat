@@ -549,8 +549,10 @@
     function drawArm(parts, S, px, py, side) {
       var dx = px - S.x, dy = py - S.y, len = Math.sqrt(dx * dx + dy * dy) || 1;
       var nx = -dy / len, ny = dx / len;
-      if (nx * side < 0) { nx = -nx; ny = -ny; }
-      var bend = Math.min(16, len * 0.12);
+      // Ellbogen zeigt nach außen. Die Krümmung wird stufenlos gewichtet statt per Vorzeichen
+      // umgeklappt – bei fast waagerechtem Arm wechselt sie sonst schlagartig die Seite (Zucken).
+      var match = clamp(nx * side * 2.5, -1, 1);
+      var bend = Math.min(16, len * 0.12) * match;
       var cx = (S.x + px) / 2 + nx * bend, cy = (S.y + py) / 2 + ny * bend;
       var d = 'M' + S.x + ' ' + S.y + 'Q' + f(cx) + ' ' + f(cy) + ' ' + f(px) + ' ' + f(py);
       setAttr(parts.line, 'd', d);
